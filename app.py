@@ -1,9 +1,7 @@
-
 import streamlit as st
 import pandas as pd
 from supabase import create_client
 from supabase.client import ClientOptions
-from urllib.parse import quote
 
 # ==========================================
 # PAGE SETTINGS
@@ -65,26 +63,27 @@ def get_supabase():
 supabase = get_supabase()
 
 # Handle Google OAuth callback
-if "code" in st.query_params:
-    auth_code = st.query_params["code"]
+auth_code = st.query_params.get("code")
 
+if auth_code:
     try:
         supabase.auth.exchange_code_for_session(
             {"auth_code": auth_code}
         )
+
         st.query_params.clear()
         st.rerun()
 
-    except Exception:
-        st.error(
-            "Login could not be completed. "
-            "Please try signing in again."
-        )
+    except Exception as error:
+        st.error("Login could not be completed.")
+        st.caption(str(error))
+
         if st.button("Try Again"):
             st.query_params.clear()
             st.rerun()
 
         st.stop()
+
 
 # Check logged-in user
 try:
@@ -93,7 +92,10 @@ try:
 except Exception:
     user = None
 
+
+# Login screen
 if user is None:
+
     st.title("💰 Money Manager")
     st.write("Track your money. Build better financial habits.")
     st.divider()
@@ -102,6 +104,7 @@ if user is None:
     st.write("Sign in with Google to manage your money.")
 
     if st.button("Continue with Google", type="primary"):
+
         try:
             response = supabase.auth.sign_in_with_oauth({
                 "provider": "google",
@@ -110,33 +113,40 @@ if user is None:
                 }
             })
 
-            login_url = response.url
-
-            st.markdown(
-                f'<meta http-equiv="refresh" content="0;url={quote(login_url, safe=":/?=&%") }">',
-                unsafe_allow_html=True
-            )
+            st.session_state["google_login_url"] = response.url
 
         except Exception as error:
             st.error("Could not start Google login.")
             st.caption(str(error))
 
+    if "google_login_url" in st.session_state:
+        st.link_button(
+            "Continue to Google",
+            st.session_state["google_login_url"],
+            type="primary"
+        )
+
     st.stop()
+
 
 # Unique ID from Supabase Auth
 USER_ID = str(user.id)
+
 
 # ==========================================
 # DATA FUNCTIONS
 # ==========================================
 def load_table(table, columns):
+
     try:
-        response = (
-            supabase.table(table)
-            .select("*")
-            .order("Date", desc=True)
-            .execute()
-        )
+        query = supabase.table(table).select("*")
+
+        # Only tables with Date columns are sorted by Date.
+        if "Date" in columns:
+            query = query.order("Date", desc=True)
+
+        response = query.execute()
+
         data = response.data or []
 
         if not data:
@@ -157,6 +167,7 @@ def load_table(table, columns):
 
 def add_record(table, record):
     record["user_id"] = USER_ID
+
     supabase.table(table).insert(record).execute()
 
 
@@ -187,6 +198,7 @@ goals["Target"] = pd.to_numeric(
     goals["Target"], errors="coerce"
 ).fillna(0)
 
+
 # ==========================================
 # SIDEBAR
 # ==========================================
@@ -206,14 +218,24 @@ starting_money = st.sidebar.number_input(
     step=1000
 )
 
-st.sidebar.caption("Build better money habits, one step at a time!")
+st.sidebar.caption(
+    "Build better money habits, one step at a time!"
+)
 
 st.sidebar.divider()
+
 st.sidebar.write(f"Signed in as **{user.email}**")
 
 if st.sidebar.button("Log Out"):
     supabase.auth.sign_out()
+
+    for key in list(st.session_state.keys()):
+        if key.startswith("sb_storage_"):
+            del st.session_state[key]
+
     st.session_state.pop("supabase_client", None)
+    st.session_state.pop("google_login_url", None)
+
     st.rerun()
 
 
@@ -221,6 +243,7 @@ if st.sidebar.button("Log Out"):
 # SAVINGS SUMMARY
 # ==========================================
 def get_goal_summary():
+
     if goals.empty:
         return pd.DataFrame(
             columns=[
@@ -233,8 +256,10 @@ def get_goal_summary():
 
     if savings.empty:
         summary["Saved"] = 0
+
     else:
         saved_by_goal = savings.groupby("Goal")["Amount"].sum()
+
         summary["Saved"] = summary["Goal"].map(
             saved_by_goal
         ).fillna(0)
@@ -252,10 +277,13 @@ def get_goal_summary():
         / summary.loc[valid, "Target"] * 100
     )
 
-    summary["Progress"] = summary["Progress"].clip(upper=100)
+    summary["Progress"] = summary["Progress"].clip(
+        upper=100
+    )
 
     return summary.sort_values(
-        "Progress", ascending=False
+        "Progress",
+        ascending=False
     ).reset_index(drop=True)
 
 
@@ -265,17 +293,34 @@ def get_goal_summary():
 if page == "My Money":
 
     st.title("💰 My Money Summary")
-    st.write("Record your expenses and savings in one place.")
+
+    st.write(
+        "Record your expenses and savings in one place."
+    )
 
     total_spent = float(expenses["Amount"].sum())
     total_saved = float(savings["Amount"].sum())
-    remaining_money = starting_money - total_spent - total_saved
+
+    remaining_money = (
+        starting_money - total_spent - total_saved
+    )
 
     col1, col2, col3 = st.columns(3)
 
-    col1.metric("Starting Money", money(starting_money))
-    col2.metric("Total Spent", money(total_spent))
-    col3.metric("Money Remaining", money(remaining_money))
+    col1.metric(
+        "Starting Money",
+        money(starting_money)
+    )
+
+    col2.metric(
+        "Total Spent",
+        money(total_spent)
+    )
+
+    col3.metric(
+        "Money Remaining",
+        money(remaining_money)
+    )
 
     st.divider()
     st.subheader("🛍️ Add an Expense")
@@ -294,16 +339,26 @@ if page == "My Money":
         )
 
         expense_amount = st.number_input(
-            "Amount (₩)", min_value=0, step=500
+            "Amount (₩)",
+            min_value=0,
+            step=500
         )
 
-        expense_note = st.text_input("Note (optional)")
+        expense_note = st.text_input(
+            "Note (optional)"
+        )
 
-        expense_submit = st.form_submit_button("Add Expense")
+        expense_submit = st.form_submit_button(
+            "Add Expense"
+        )
 
     if expense_submit:
+
         if expense_amount <= 0:
-            st.warning("Enter an amount greater than zero.")
+            st.warning(
+                "Enter an amount greater than zero."
+            )
+
         else:
             try:
                 add_record("expenses", {
@@ -312,10 +367,14 @@ if page == "My Money":
                     "Amount": expense_amount,
                     "Note": expense_note
                 })
+
                 st.success("Expense saved!")
                 st.rerun()
+
             except Exception as error:
-                st.error(f"Could not save expense: {error}")
+                st.error(
+                    f"Could not save expense: {error}"
+                )
 
     # Spending Analysis
     st.divider()
@@ -338,14 +397,18 @@ if page == "My Money":
             "Spending (%)": category_percentages.round(1)
         })
 
-        st.dataframe(analysis, use_container_width=True)
+        st.dataframe(
+            analysis,
+            use_container_width=True
+        )
 
         top_category = category_totals.idxmax()
         top_percent = category_percentages[top_category]
 
         st.info(
-            f"Your highest spending category is {top_category} "
-            f"({top_percent:.1f}% of recorded spending)."
+            f"Your highest spending category is "
+            f"{top_category} ({top_percent:.1f}% "
+            "of recorded spending)."
         )
 
         if top_percent >= 50:
@@ -354,15 +417,22 @@ if page == "My Money":
             )
 
     else:
-        st.info("Add an expense to see your spending analysis.")
+        st.info(
+            "Add an expense to see your spending analysis."
+        )
 
     with st.expander("View Expense History"):
+
         if not expenses.empty:
             st.dataframe(
-                expenses.sort_values("Date", ascending=False),
+                expenses.sort_values(
+                    "Date",
+                    ascending=False
+                ),
                 use_container_width=True,
                 hide_index=True
             )
+
         else:
             st.write("No expenses recorded yet.")
 
@@ -370,7 +440,10 @@ if page == "My Money":
     st.divider()
     st.subheader("🎯 Create a Savings Goal")
 
-    with st.form("create_goal_form", clear_on_submit=True):
+    with st.form(
+        "create_goal_form",
+        clear_on_submit=True
+    ):
 
         new_goal_name = st.text_input(
             "Goal Name",
@@ -384,18 +457,25 @@ if page == "My Money":
             step=1000
         )
 
-        create_goal_submit = st.form_submit_button("Create Goal")
+        create_goal_submit = st.form_submit_button(
+            "Create Goal"
+        )
 
     if create_goal_submit:
 
         if not new_goal_name.strip():
-            st.warning("Please enter a goal name.")
+            st.warning(
+                "Please enter a goal name."
+            )
 
         elif (
             goals["Goal"].astype(str).str.casefold()
             == new_goal_name.strip().casefold()
         ).any():
-            st.warning("This goal already exists.")
+
+            st.warning(
+                "This goal already exists."
+            )
 
         else:
             try:
@@ -403,10 +483,14 @@ if page == "My Money":
                     "Goal": new_goal_name.strip(),
                     "Target": new_goal_target
                 })
+
                 st.success("Savings goal created!")
                 st.rerun()
+
             except Exception as error:
-                st.error(f"Could not create goal: {error}")
+                st.error(
+                    f"Could not create goal: {error}"
+                )
 
     # Add Savings
     st.subheader("🐷 Add to My Savings")
@@ -415,7 +499,10 @@ if page == "My Money":
 
         goal_names = goals["Goal"].astype(str).tolist()
 
-        with st.form("add_savings_form", clear_on_submit=True):
+        with st.form(
+            "add_savings_form",
+            clear_on_submit=True
+        ):
 
             selected_goal = st.selectbox(
                 "Choose an existing goal",
@@ -441,7 +528,10 @@ if page == "My Money":
         if add_savings_submit:
 
             if savings_amount <= 0:
-                st.warning("Enter an amount greater than zero.")
+                st.warning(
+                    "Enter an amount greater than zero."
+                )
+
             else:
                 try:
                     add_record("savings", {
@@ -449,12 +539,18 @@ if page == "My Money":
                         "Goal": selected_goal,
                         "Amount": savings_amount
                     })
+
                     st.success(
-                        f"{money(savings_amount)} added to {selected_goal}!"
+                        f"{money(savings_amount)} "
+                        f"added to {selected_goal}!"
                     )
+
                     st.rerun()
+
                 except Exception as error:
-                    st.error(f"Could not save savings: {error}")
+                    st.error(
+                        f"Could not save savings: {error}"
+                    )
 
         st.divider()
         st.subheader("📈 My Current Savings")
@@ -462,15 +558,25 @@ if page == "My Money":
         current_summary = get_goal_summary()
 
         for _, row in current_summary.iterrows():
+
             st.write(
                 f"**{row['Goal']}** — "
-                f"{money(row['Saved'])} / {money(row['Target'])}"
+                f"{money(row['Saved'])} / "
+                f"{money(row['Target'])}"
             )
-            st.progress(float(row["Progress"]) / 100)
-            st.caption(f"Progress: {row['Progress']:.1f}%")
+
+            st.progress(
+                float(row["Progress"]) / 100
+            )
+
+            st.caption(
+                f"Progress: {row['Progress']:.1f}%"
+            )
 
     else:
-        st.info("Create a savings goal above before adding savings.")
+        st.info(
+            "Create a savings goal above before adding savings."
+        )
 
 
 # ==========================================
@@ -479,25 +585,41 @@ if page == "My Money":
 elif page == "Progress":
 
     st.title("🎯 My Savings Progress")
-    st.write("All progress is calculated from your saved records.")
+
+    st.write(
+        "All progress is calculated from your saved records."
+    )
 
     summary = get_goal_summary()
 
     if summary.empty:
+
         st.info(
             "You don't have a savings goal yet. "
             "Go to My Money to create one."
         )
 
     else:
+
         total_targets = float(summary["Target"].sum())
         total_goal_savings = float(summary["Saved"].sum())
 
         col1, col2, col3 = st.columns(3)
 
-        col1.metric("Number of Goals", len(summary))
-        col2.metric("Total Saved", money(total_goal_savings))
-        col3.metric("Total Targets", money(total_targets))
+        col1.metric(
+            "Number of Goals",
+            len(summary)
+        )
+
+        col2.metric(
+            "Total Saved",
+            money(total_goal_savings)
+        )
+
+        col3.metric(
+            "Total Targets",
+            money(total_targets)
+        )
 
         st.divider()
 
@@ -507,29 +629,48 @@ elif page == "Progress":
 
             col1, col2, col3 = st.columns(3)
 
-            col1.metric("Saved", money(row["Saved"]))
-            col2.metric("Target", money(row["Target"]))
-            col3.metric("Remaining", money(row["Remaining"]))
+            col1.metric(
+                "Saved",
+                money(row["Saved"])
+            )
 
-            st.progress(float(row["Progress"]) / 100)
+            col2.metric(
+                "Target",
+                money(row["Target"])
+            )
+
+            col3.metric(
+                "Remaining",
+                money(row["Remaining"])
+            )
+
+            st.progress(
+                float(row["Progress"]) / 100
+            )
 
             st.write(
                 f"**Goal Progress: {row['Progress']:.1f}%**"
             )
 
             if row["Progress"] >= 100:
-                st.success("Goal completed! Congratulations!")
+                st.success(
+                    "Goal completed! Congratulations!"
+                )
+
             else:
                 st.caption(
-                    f"You need {money(row['Remaining'])} more "
-                    "to reach this goal."
+                    f"You need {money(row['Remaining'])} "
+                    "more to reach this goal."
                 )
 
             st.divider()
 
         st.subheader("Compare Your Goals")
 
-        chart_data = summary.set_index("Goal")[["Progress"]]
+        chart_data = summary.set_index(
+            "Goal"
+        )[["Progress"]]
+
         st.bar_chart(chart_data)
 
         st.caption(
@@ -544,19 +685,23 @@ elif page == "Progress":
 elif page == "Ranking":
 
     st.title("Ranking")
+
     st.write(
-        "Your ranking is automatically generated from your savings goals."
+        "Your ranking is automatically generated "
+        "from your savings goals."
     )
 
     summary = get_goal_summary()
 
     if summary.empty:
+
         st.info(
             "Create a savings goal and add savings on My Money "
             "to appear in this ranking."
         )
 
     else:
+
         ranking_table = summary[
             ["Goal", "Saved", "Target", "Progress"]
         ].copy()
@@ -567,7 +712,9 @@ elif page == "Ranking":
         ).reset_index(drop=True)
 
         ranking_table.insert(
-            0, "Rank", range(1, len(ranking_table) + 1)
+            0,
+            "Rank",
+            range(1, len(ranking_table) + 1)
         )
 
         ranking_table = ranking_table.rename(
@@ -605,7 +752,10 @@ elif page == "Ranking":
 elif page == "Money Guide":
 
     st.title("Money Guide")
-    st.write("Learn simple habits to manage your money wisely.")
+
+    st.write(
+        "Learn simple habits to manage your money wisely."
+    )
 
     st.divider()
     st.subheader("1. The 50/30/20 Rule")
@@ -638,14 +788,18 @@ elif page == "Money Guide":
     col1, col2 = st.columns(2)
 
     with col1:
+
         st.markdown("### ⭕ Needs")
+
         st.write(
             "Essential things such as transportation "
             "and necessary school supplies."
         )
 
     with col2:
+
         st.markdown("### ❌ Wants")
+
         st.write(
             "Extra things you would like, such as games, "
             "snacks, or accessories."
