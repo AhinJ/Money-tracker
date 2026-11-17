@@ -74,9 +74,16 @@ if auth_code:
         st.query_params.clear()
         st.rerun()
 
-    except Exception as error:
-        st.error("Login could not be completed.")
-        st.caption(str(error))
+  except Exception as error:
+    st.error("Login could not be completed.")
+    st.write("Error type:", type(error).__name__)
+    st.write("Error details:", str(error))
+
+    if st.button("Try Again"):
+        st.query_params.clear()
+        st.rerun()
+
+    st.stop()
 
         if st.button("Try Again"):
             st.query_params.clear()
