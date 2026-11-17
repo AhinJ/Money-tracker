@@ -31,6 +31,26 @@ class StreamlitStorage:
         st.session_state.pop("sb_storage_" + key, None)
 
 
+def get_supabase():
+
+    if "supabase_client" not in st.session_state:
+
+        url, key = get_public_config()
+
+        options = ClientOptions(
+            flow_type="pkce",
+            storage=StreamlitStorage()
+        )
+
+        st.session_state["supabase_client"] = create_client(
+            url,
+            key,
+            options=options
+        )
+
+    return st.session_state["supabase_client"]
+
+
 # ==========================================
 # SUPABASE CONNECTION
 # ==========================================
