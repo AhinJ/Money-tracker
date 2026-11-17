@@ -65,6 +65,9 @@ supabase = get_supabase()
 # Handle Google OAuth callback
 auth_code = st.query_params.get("code")
 
+# Handle Google OAuth callback
+auth_code = st.query_params.get("code")
+
 if auth_code:
     try:
         supabase.auth.exchange_code_for_session(
@@ -73,6 +76,17 @@ if auth_code:
 
         st.query_params.clear()
         st.rerun()
+
+    except Exception as error:
+        st.error("Login could not be completed.")
+        st.write("Error type:", type(error).__name__)
+        st.write("Error details:", str(error))
+
+        if st.button("Try Again"):
+            st.query_params.clear()
+            st.rerun()
+
+        st.stop()
 
   except Exception as error:
     st.error("Login could not be completed.")
