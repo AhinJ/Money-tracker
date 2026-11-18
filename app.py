@@ -65,7 +65,6 @@ if st.user.is_logged_in and user is None:
 
         google_id_token = st.user.tokens.get("id")
         google_access_token = st.user.tokens.get("access")
-        google_nonce = st.user.get("nonce")
 
         if not google_id_token:
 
@@ -83,9 +82,7 @@ if st.user.is_logged_in and user is None:
             "access_token": google_access_token
         }
 
-        if google_nonce:
-
-            credentials["nonce"] = google_nonce
+      
 
         response = supabase.auth.sign_in_with_id_token(
             credentials
