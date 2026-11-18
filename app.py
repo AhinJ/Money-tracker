@@ -17,108 +17,99 @@ APP_URL = "https://money-tracker-ajappjba3jglvuyc7t7mspw.streamlit.app/"
 
 
 # ==========================================
-# SUPABASE SESSION STORAGE
+# SUPABASE CLIENT
 # ==========================================
-class StreamlitStorage:
-
-    def get_item(self, key):
-        return st.session_state.get("sb_storage_" + key)
-
-    def set_item(self, key, value):
-        st.session_state["sb_storage_" + key] = value
-
-    def remove_item(self, key):
-        st.session_state.pop("sb_storage_" + key, None)
-
-
 def get_supabase():
 
     if "supabase_client" not in st.session_state:
 
         url, key = get_public_config()
 
-        options = ClientOptions(
-            flow_type="pkce",
-            storage=StreamlitStorage()
-        )
-
         st.session_state["supabase_client"] = create_client(
             url,
-            key,
-            options=options
+            key
         )
 
     return st.session_state["supabase_client"]
-
-
-# ==========================================
-# SUPABASE CONNECTION
-# ==========================================
-@st.cache_resource
-def get_public_config():
-    return (
-        st.secrets["SUPABASE_URL"],
-        st.secrets["SUPABASE_KEY"]
-    )
-
-
-def get_supabase():
-
-    if "supabase_client" not in st.session_state:
-
-        url, key = get_public_config()
-
-        options = ClientOptions(
-            flow_type="pkce",
-            storage=StreamlitStorage()
-        )
-
-        st.session_state["supabase_client"] = create_client(
-            url,
-            key,
-            options=options
-        )
-
-    return st.session_state["supabase_client"]
-
 
 # ==========================================
 # AUTHENTICATION
 # ==========================================
 supabase = get_supabase()
 
-# Handle Google OAuth callback
-auth_code = st.query_params.get("code")
+user = None
 
-if auth_code:
+# Check Supabase session first
+try:
+    user_response = supabase.auth.get_user()
+    user = user_response.user
+except Exception:
+    user = None
+
+
+# Connect Streamlit Google login to Supabase
+if st.user.is_logged_in and user is None:
 
     try:
-        supabase.auth.exchange_code_for_session(
-            {"auth_code": auth_code}
+        google_id_token = st.user.tokens.get("id")
+        google_nonce = st.user.get("nonce")
+
+        if not google_id_token:
+            st.error("Google ID token is missing.")
+            st.stop()
+
+        credentials = {
+            "provider": "google",
+            "token": google_id_token
+        }
+
+        if google_nonce:
+            credentials["nonce"] = google_nonce
+
+        response = supabase.auth.sign_in_with_id_token(
+            credentials
         )
 
-        st.query_params.clear()
-        st.rerun()
+        user = response.user
 
     except Exception as error:
-
-        st.error("Login could not be completed.")
-
-        st.write(
-            "Error type:",
-            type(error).__name__
-        )
-
-        st.write(
-            "Error details:",
-            str(error)
-        )
-
-        if st.button("Try Again"):
-            st.query_params.clear()
-            st.rerun()
-
+        st.error("Supabase login could not be completed.")
+        st.write("Error type:", type(error).__name__)
+        st.write("Error details:", str(error))
         st.stop()
+
+
+# ==========================================
+# LOGIN SCREEN
+# ==========================================
+if not st.user.is_logged_in:
+
+    st.title("💰 Money Manager")
+
+    st.write(
+        "Track your money. Build better financial habits."
+    )
+
+    st.divider()
+
+    st.subheader("Welcome!")
+
+    st.write(
+        "Sign in with Google to manage your money."
+    )
+
+    if st.button(
+        "Continue with Google",
+        type="primary"
+    ):
+        st.login()
+
+    st.stop()
+
+
+if user is None:
+    st.error("Could not verify your Supabase login.")
+    st.stop()
 
 
 # Check logged-in user
