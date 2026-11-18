@@ -1,8 +1,6 @@
-
 import streamlit as st
 import pandas as pd
 from supabase import create_client
-from supabase.client import ClientOptions
 
 # ==========================================
 # PAGE SETTINGS
@@ -13,7 +11,16 @@ st.set_page_config(
     layout="wide"
 )
 
-APP_URL = "https://money-tracker-ajappjba3jglvuyc7t7mspw.streamlit.app/"
+
+# ==========================================
+# SUPABASE CONFIG
+# ==========================================
+def get_public_config():
+
+    return (
+        st.secrets["SUPABASE_URL"],
+        st.secrets["SUPABASE_KEY"]
+    )
 
 
 # ==========================================
@@ -32,6 +39,7 @@ def get_supabase():
 
     return st.session_state["supabase_client"]
 
+
 # ==========================================
 # AUTHENTICATION
 # ==========================================
@@ -39,31 +47,44 @@ supabase = get_supabase()
 
 user = None
 
-# Check Supabase session first
+# Check existing Supabase session
 try:
+
     user_response = supabase.auth.get_user()
     user = user_response.user
+
 except Exception:
+
     user = None
 
 
-# Connect Streamlit Google login to Supabase
+# Connect Google login to Supabase
 if st.user.is_logged_in and user is None:
 
     try:
+
         google_id_token = st.user.tokens.get("id")
+        google_access_token = st.user.tokens.get("access")
         google_nonce = st.user.get("nonce")
 
         if not google_id_token:
+
             st.error("Google ID token is missing.")
+            st.stop()
+
+        if not google_access_token:
+
+            st.error("Google access token is missing.")
             st.stop()
 
         credentials = {
             "provider": "google",
-            "token": google_id_token
+            "token": google_id_token,
+            "access_token": google_access_token
         }
 
         if google_nonce:
+
             credentials["nonce"] = google_nonce
 
         response = supabase.auth.sign_in_with_id_token(
@@ -73,9 +94,19 @@ if st.user.is_logged_in and user is None:
         user = response.user
 
     except Exception as error:
+
         st.error("Supabase login could not be completed.")
-        st.write("Error type:", type(error).__name__)
-        st.write("Error details:", str(error))
+
+        st.write(
+            "Error type:",
+            type(error).__name__
+        )
+
+        st.write(
+            "Error details:",
+            str(error)
+        )
+
         st.stop()
 
 
@@ -102,74 +133,17 @@ if not st.user.is_logged_in:
         "Continue with Google",
         type="primary"
     ):
+
         st.login()
 
     st.stop()
 
 
 if user is None:
-    st.error("Could not verify your Supabase login.")
-    st.stop()
 
-
-# Check logged-in user
-try:
-
-    user_response = supabase.auth.get_user()
-    user = user_response.user
-
-except Exception:
-
-    user = None
-
-
-# ==========================================
-# LOGIN SCREEN
-# ==========================================
-if user is None:
-
-    st.title("💰 Money Manager")
-
-    st.write(
-        "Track your money. Build better financial habits."
+    st.error(
+        "Could not verify your Supabase login."
     )
-
-    st.divider()
-
-    st.subheader("Welcome!")
-
-    st.write(
-        "Sign in with Google to manage your money."
-    )
-
-    if st.button(
-        "Continue with Google",
-        type="primary"
-    ):
-
-        try:
-
-            response = supabase.auth.sign_in_with_oauth({
-                "provider": "google",
-                "options": {
-                    "redirect_to": APP_URL
-                }
-            })
-
-            st.session_state["google_login_url"] = response.url
-
-        except Exception as error:
-
-            st.error("Could not start Google login.")
-            st.write(str(error))
-
-    if "google_login_url" in st.session_state:
-
-        st.link_button(
-            "Continue to Google",
-            st.session_state["google_login_url"],
-            type="primary"
-        )
 
     st.stop()
 
@@ -190,36 +164,50 @@ def load_table(table, columns):
         query = supabase.table(table).select("*")
 
         if "Date" in columns:
-            query = query.order("Date", desc=True)
+
+            query = query.order(
+                "Date",
+                desc=True
+            )
 
         response = query.execute()
 
         data = response.data or []
 
         if not data:
-            return pd.DataFrame(columns=columns)
+
+            return pd.DataFrame(
+                columns=columns
+            )
 
         df = pd.DataFrame(data)
 
         for column in columns:
 
             if column not in df.columns:
+
                 df[column] = None
 
         return df[columns]
 
     except Exception as error:
 
-        st.error(f"Could not load {table}: {error}")
+        st.error(
+            f"Could not load {table}: {error}"
+        )
 
-        return pd.DataFrame(columns=columns)
+        return pd.DataFrame(
+            columns=columns
+        )
 
 
 def add_record(table, record):
 
     record["user_id"] = USER_ID
 
-    supabase.table(table).insert(record).execute()
+    supabase.table(table).insert(
+        record
+    ).execute()
 
 
 def money(amount):
@@ -247,6 +235,7 @@ goal_columns = [
     "Goal",
     "Target"
 ]
+
 
 expenses = load_table(
     "expenses",
@@ -317,24 +306,19 @@ st.sidebar.write(
 
 if st.sidebar.button("Log Out"):
 
-    supabase.auth.sign_out()
+    try:
 
-    for key in list(st.session_state.keys()):
+        supabase.auth.sign_out()
 
-        if key.startswith("sb_storage_"):
-            del st.session_state[key]
+    except Exception:
+        pass
 
     st.session_state.pop(
         "supabase_client",
         None
     )
 
-    st.session_state.pop(
-        "google_login_url",
-        None
-    )
-
-    st.rerun()
+    st.logout()
 
 
 # ==========================================
@@ -404,9 +388,13 @@ if page == "My Money":
         "Record your expenses and savings in one place."
     )
 
-    total_spent = float(expenses["Amount"].sum())
+    total_spent = float(
+        expenses["Amount"].sum()
+    )
 
-    total_saved = float(savings["Amount"].sum())
+    total_saved = float(
+        savings["Amount"].sum()
+    )
 
     remaining_money = (
         starting_money - total_spent - total_saved
