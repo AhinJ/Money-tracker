@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 from supabase import create_client
 
+
 # ==========================================
 # PAGE SETTINGS
 # ==========================================
@@ -16,22 +17,15 @@ st.set_page_config(
 # SUPABASE CONFIG
 # ==========================================
 def get_public_config():
-
     return (
         st.secrets["SUPABASE_URL"],
         st.secrets["SUPABASE_KEY"]
     )
 
 
-# ==========================================
-# SUPABASE CLIENT
-# ==========================================
 def get_supabase():
-
     if "supabase_client" not in st.session_state:
-
         url, key = get_public_config()
-
         st.session_state["supabase_client"] = create_client(
             url,
             key
@@ -40,39 +34,32 @@ def get_supabase():
     return st.session_state["supabase_client"]
 
 
+supabase = get_supabase()
+
+
 # ==========================================
 # AUTHENTICATION
 # ==========================================
-supabase = get_supabase()
-
 user = None
 
-# Check existing Supabase session
 try:
-
     user_response = supabase.auth.get_user()
     user = user_response.user
-
 except Exception:
-
     user = None
 
 
 # Connect Google login to Supabase
 if st.user.is_logged_in and user is None:
-
     try:
-
         google_id_token = st.user.tokens.get("id")
         google_access_token = st.user.tokens.get("access")
 
         if not google_id_token:
-
             st.error("Google ID token is missing.")
             st.stop()
 
         if not google_access_token:
-
             st.error("Google access token is missing.")
             st.stop()
 
@@ -82,8 +69,6 @@ if st.user.is_logged_in and user is None:
             "access_token": google_access_token
         }
 
-      
-
         response = supabase.auth.sign_in_with_id_token(
             credentials
         )
@@ -91,19 +76,9 @@ if st.user.is_logged_in and user is None:
         user = response.user
 
     except Exception as error:
-
         st.error("Supabase login could not be completed.")
-
-        st.write(
-            "Error type:",
-            type(error).__name__
-        )
-
-        st.write(
-            "Error details:",
-            str(error)
-        )
-
+        st.write("Error type:", type(error).__name__)
+        st.write("Error details:", str(error))
         st.stop()
 
 
@@ -111,7 +86,6 @@ if st.user.is_logged_in and user is None:
 # LOGIN SCREEN
 # ==========================================
 if not st.user.is_logged_in:
-
     st.title("💰 Money Manager")
 
     st.write(
@@ -119,87 +93,138 @@ if not st.user.is_logged_in:
     )
 
     st.divider()
-
     st.subheader("Welcome!")
 
     st.write(
         "Sign in with Google to manage your money."
     )
 
-    if st.button(
-        "Continue with Google",
-        type="primary"
-    ):
-
+    if st.button("Continue with Google", type="primary"):
         st.login()
 
     st.stop()
 
 
 if user is None:
+    st.error("Could not verify your Supabase login.")
+    st.stop()
 
-    st.error(
-        "Could not verify your Supabase login."
+
+USER_ID = str(user.id)
+
+
+# ==========================================
+# NICKNAME SETUP
+# ==========================================
+try:
+    profile_response = (
+        supabase.table("profiles")
+        .select("nickname")
+        .eq("id", USER_ID)
+        .maybe_single()
+        .execute()
     )
+
+    profile = profile_response.data
+
+except Exception as error:
+    st.error("Could not load your profile.")
+    st.write(str(error))
+    st.info(
+        "Check that you have run the profiles SQL "
+        "in Supabase SQL Editor."
+    )
+    st.stop()
+
+
+# First-time users must create a nickname
+if not profile:
+    st.title("💰 Welcome to Money Manager!")
+
+    st.subheader("Create Your Nickname")
+
+    st.write(
+        "Choose a nickname that other users can see "
+        "on the Ranking page."
+    )
+
+    with st.form("nickname_form"):
+        new_nickname = st.text_input(
+            "Nickname",
+            max_chars=20,
+            placeholder="Enter a nickname"
+        )
+
+        nickname_submit = st.form_submit_button(
+            "Save Nickname",
+            type="primary"
+        )
+
+    if nickname_submit:
+        nickname = new_nickname.strip()
+
+        if len(nickname) < 2:
+            st.warning(
+                "Your nickname must be at least 2 characters."
+            )
+
+        elif len(nickname) > 20:
+            st.warning(
+                "Your nickname must be 20 characters or less."
+            )
+
+        else:
+            try:
+                supabase.table("profiles").insert({
+                    "id": USER_ID,
+                    "nickname": nickname
+                }).execute()
+
+                st.success("Nickname saved!")
+                st.rerun()
+
+            except Exception:
+                st.error(
+                    "This nickname may already be taken. "
+                    "Please try another one."
+                )
 
     st.stop()
 
 
-# ==========================================
-# USER ID
-# ==========================================
-USER_ID = str(user.id)
+NICKNAME = profile["nickname"]
 
 
 # ==========================================
 # DATA FUNCTIONS
 # ==========================================
 def load_table(table, columns):
-
     try:
-
         query = supabase.table(table).select("*")
 
         if "Date" in columns:
-
-            query = query.order(
-                "Date",
-                desc=True
-            )
+            query = query.order("Date", desc=True)
 
         response = query.execute()
-
         data = response.data or []
 
         if not data:
-
-            return pd.DataFrame(
-                columns=columns
-            )
+            return pd.DataFrame(columns=columns)
 
         df = pd.DataFrame(data)
 
         for column in columns:
-
             if column not in df.columns:
-
                 df[column] = None
 
         return df[columns]
 
     except Exception as error:
-
-        st.error(
-            f"Could not load {table}: {error}"
-        )
-
-        return pd.DataFrame(
-            columns=columns
-        )
+        st.error(f"Could not load {table}: {error}")
+        return pd.DataFrame(columns=columns)
 
 
 def add_record(table, record):
-
     record["user_id"] = USER_ID
 
     supabase.table(table).insert(
@@ -208,7 +233,6 @@ def add_record(table, record):
 
 
 def money(amount):
-
     return f"₩{amount:,.0f}"
 
 
@@ -298,15 +322,12 @@ st.sidebar.caption(
 st.sidebar.divider()
 
 st.sidebar.write(
-    f"Signed in as **{user.email}**"
+    f"Signed in as **{NICKNAME}**"
 )
 
 if st.sidebar.button("Log Out"):
-
     try:
-
         supabase.auth.sign_out()
-
     except Exception:
         pass
 
@@ -324,7 +345,6 @@ if st.sidebar.button("Log Out"):
 def get_goal_summary():
 
     if goals.empty:
-
         return pd.DataFrame(
             columns=[
                 "Goal",
@@ -338,11 +358,9 @@ def get_goal_summary():
     summary = goals.copy()
 
     if savings.empty:
-
         summary["Saved"] = 0
 
     else:
-
         saved_by_goal = savings.groupby(
             "Goal"
         )["Amount"].sum()
@@ -416,7 +434,6 @@ if page == "My Money":
 
     # ADD EXPENSE
     st.divider()
-
     st.subheader("🛍️ Add an Expense")
 
     with st.form(
@@ -457,15 +474,12 @@ if page == "My Money":
     if expense_submit:
 
         if expense_amount <= 0:
-
             st.warning(
                 "Enter an amount greater than zero."
             )
 
         else:
-
             try:
-
                 add_record(
                     "expenses",
                     {
@@ -477,11 +491,9 @@ if page == "My Money":
                 )
 
                 st.success("Expense saved!")
-
                 st.rerun()
 
             except Exception as error:
-
                 st.error(
                     f"Could not save expense: {error}"
                 )
@@ -489,7 +501,6 @@ if page == "My Money":
 
     # SPENDING ANALYSIS
     st.divider()
-
     st.subheader("📊 Spending Analysis")
 
     if not expenses.empty and total_spent > 0:
@@ -529,13 +540,11 @@ if page == "My Money":
         )
 
         if top_percent >= 50:
-
             st.warning(
                 "Consider setting a budget for this spending category."
             )
 
     else:
-
         st.info(
             "Add an expense to see your spending analysis."
         )
@@ -545,7 +554,6 @@ if page == "My Money":
     with st.expander("View Expense History"):
 
         if not expenses.empty:
-
             st.dataframe(
                 expenses.sort_values(
                     "Date",
@@ -556,13 +564,11 @@ if page == "My Money":
             )
 
         else:
-
             st.write("No expenses recorded yet.")
 
 
     # CREATE GOAL
     st.divider()
-
     st.subheader("🎯 Create a Savings Goal")
 
     with st.form(
@@ -589,7 +595,6 @@ if page == "My Money":
     if create_goal_submit:
 
         if not new_goal_name.strip():
-
             st.warning(
                 "Please enter a goal name."
             )
@@ -604,9 +609,7 @@ if page == "My Money":
             )
 
         else:
-
             try:
-
                 add_record(
                     "goals",
                     {
@@ -616,11 +619,9 @@ if page == "My Money":
                 )
 
                 st.success("Savings goal created!")
-
                 st.rerun()
 
             except Exception as error:
-
                 st.error(
                     f"Could not create goal: {error}"
                 )
@@ -664,15 +665,12 @@ if page == "My Money":
         if add_savings_submit:
 
             if savings_amount <= 0:
-
                 st.warning(
                     "Enter an amount greater than zero."
                 )
 
             else:
-
                 try:
-
                     add_record(
                         "savings",
                         {
@@ -690,13 +688,11 @@ if page == "My Money":
                     st.rerun()
 
                 except Exception as error:
-
                     st.error(
                         f"Could not save savings: {error}"
                     )
 
         st.divider()
-
         st.subheader("📈 My Current Savings")
 
         current_summary = get_goal_summary()
@@ -718,7 +714,6 @@ if page == "My Money":
             )
 
     else:
-
         st.info(
             "Create a savings goal above before adding savings."
         )
@@ -738,7 +733,6 @@ elif page == "Progress":
     summary = get_goal_summary()
 
     if summary.empty:
-
         st.info(
             "You don't have a savings goal yet. "
             "Go to My Money to create one."
@@ -805,13 +799,11 @@ elif page == "Progress":
             )
 
             if row["Progress"] >= 100:
-
                 st.success(
                     "Goal completed! Congratulations!"
                 )
 
             else:
-
                 st.caption(
                     f"You need {money(row['Remaining'])} "
                     "more to reach this goal."
@@ -838,66 +830,137 @@ elif page == "Progress":
 # ==========================================
 elif page == "Ranking":
 
-    st.title("Ranking")
+    st.title("🏆 Savings Ranking")
 
     st.write(
-        "Your ranking is automatically generated "
-        "from your savings goals."
+        "Compare your savings progress with other users "
+        "who have goals in the same target range."
     )
 
-    summary = get_goal_summary()
+    try:
+        ranking_response = supabase.rpc(
+            "get_grouped_leaderboard"
+        ).execute()
 
-    if summary.empty:
+        ranking_data = ranking_response.data or []
+
+    except Exception as error:
+        ranking_data = None
+
+        st.error(
+            "Could not load the public ranking."
+        )
+
+        st.write(str(error))
 
         st.info(
-            "Create a savings goal and add savings on My Money "
-            "to appear in this ranking."
+            "Please check that the leaderboard SQL function "
+            "has been created in Supabase."
         )
 
-    else:
 
-        ranking_table = summary[
-            ["Goal", "Saved", "Target", "Progress"]
-        ].copy()
+    if ranking_data is not None:
 
-        ranking_table = ranking_table.sort_values(
-            ["Progress", "Saved"],
-            ascending=[False, False]
-        ).reset_index(drop=True)
+        if not ranking_data:
 
-        ranking_table.insert(
-            0,
-            "Rank",
-            range(1, len(ranking_table) + 1)
-        )
+            st.info(
+                "There are no active goals in the ranking yet. "
+                "Create a goal and add savings to participate."
+            )
 
-        ranking_table = ranking_table.rename(
-            columns={
-                "Saved": "Saved (₩)",
-                "Target": "Target (₩)",
-                "Progress": "Progress (%)"
-            }
-        )
+        else:
 
-        st.subheader("🥇 Leaderboard")
+            ranking_df = pd.DataFrame(ranking_data)
 
-        st.dataframe(
-            ranking_table,
-            use_container_width=True,
-            hide_index=True
-        )
+            ranking_df["bucket_min"] = pd.to_numeric(
+                ranking_df["bucket_min"],
+                errors="coerce"
+            )
 
-        first_goal = ranking_table.iloc[0]
+            ranking_df["bucket_max"] = pd.to_numeric(
+                ranking_df["bucket_max"],
+                errors="coerce"
+            )
 
-        st.success(
-            f"Your top goal is **{first_goal['Goal']}** "
-            f"with {first_goal['Progress (%)']:.1f}% progress!"
-        )
+            ranking_df["target"] = pd.to_numeric(
+                ranking_df["target"],
+                errors="coerce"
+            )
 
-        st.caption(
-            "This ranking compares your own goals. "
-            "It is not a public ranking of different users."
-        )
+            ranking_df["progress"] = pd.to_numeric(
+                ranking_df["progress"],
+                errors="coerce"
+            )
+
+            ranking_df["rank"] = pd.to_numeric(
+                ranking_df["rank"],
+                errors="coerce"
+            )
+
+            ranking_df = ranking_df.sort_values(
+                ["bucket_min", "rank"]
+            )
+
+            st.caption(
+                "Each user appears only once in each target range. "
+                "If a user has multiple goals in the same range, "
+                "only their highest-progress goal is counted."
+            )
+
+            st.caption(
+                "Completed goals (100% progress) are excluded."
+            )
+
+            st.divider()
+
+            for (bucket_min, bucket_max), group in (
+                ranking_df.groupby(
+                    ["bucket_min", "bucket_max"],
+                    sort=True
+                )
+            ):
+
+                st.subheader(
+                    f"🎯 {money(bucket_min)} – {money(bucket_max)}"
+                )
+
+                display_df = group[
+                    [
+                        "rank",
+                        "nickname",
+                        "goal_name",
+                        "target",
+                        "progress"
+                    ]
+                ].copy()
+
+                display_df = display_df.rename(
+                    columns={
+                        "rank": "Rank",
+                        "nickname": "Nickname",
+                        "goal_name": "Goal",
+                        "target": "Target (₩)",
+                        "progress": "Progress (%)"
+                    }
+                )
+
+                display_df["Target (₩)"] = (
+                    display_df["Target (₩)"].apply(money)
+                )
+
+                display_df["Progress (%)"] = (
+                    display_df["Progress (%)"].map(
+                        lambda value: f"{value:.1f}%"
+                    )
+                )
+
+                st.dataframe(
+                    display_df,
+                    use_container_width=True,
+                    hide_index=True
+                )
+
+                st.divider()
 
 
 # ==========================================
@@ -918,9 +981,7 @@ elif page == "Money Guide":
     col1, col2, col3 = st.columns(3)
 
     col1.metric("50%", "Needs")
-
     col2.metric("30%", "Wants")
-
     col3.metric("20%", "Savings")
 
     st.caption(
@@ -947,7 +1008,6 @@ elif page == "Money Guide":
     col1, col2 = st.columns(2)
 
     with col1:
-
         st.markdown("### ⭕ Needs")
 
         st.write(
@@ -956,7 +1016,6 @@ elif page == "Money Guide":
         )
 
     with col2:
-
         st.markdown("### ❌ Wants")
 
         st.write(
