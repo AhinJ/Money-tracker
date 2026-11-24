@@ -112,7 +112,6 @@ if user is None:
 
 USER_ID = str(user.id)
 
-
 # ==========================================
 # NICKNAME SETUP
 # ==========================================
@@ -121,19 +120,17 @@ try:
         supabase.table("profiles")
         .select("nickname")
         .eq("id", USER_ID)
-        .maybe_single()
         .execute()
     )
 
-    profile = profile_response.data
+    profile_data = profile_response.data or []
+
+    profile = profile_data[0] if profile_data else None
 
 except Exception as error:
     st.error("Could not load your profile.")
-    st.write(str(error))
-    st.info(
-        "Check that you have run the profiles SQL "
-        "in Supabase SQL Editor."
-    )
+    st.write("Error type:", type(error).__name__)
+    st.write("Error details:", str(error))
     st.stop()
 
 
@@ -183,17 +180,17 @@ if not profile:
                 st.success("Nickname saved!")
                 st.rerun()
 
-            except Exception:
+            except Exception as error:
                 st.error(
-                    "This nickname may already be taken. "
-                    "Please try another one."
+                    "Could not save nickname. "
+                    "The nickname may already be taken."
                 )
+                st.write(str(error))
 
     st.stop()
 
 
 NICKNAME = profile["nickname"]
-
 
 # ==========================================
 # DATA FUNCTIONS
